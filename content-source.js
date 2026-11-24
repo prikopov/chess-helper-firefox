@@ -1,11 +1,13 @@
 import { Tracker, Chess, placement, readPlacement } from "./tracker.js";
 import { createPanel } from "./panel.js";
 import { playMove, choosePromotion } from "./auto-move.js";
+import { MoveDelay, moveDelay } from "./move-delay.js";
 (() => {
   if (document.getElementById("chess-experiment-panel")) return;
   const root = createPanel();
   const $ = (id) => root.getElementById(id);
   const tracker = new Tracker();
+  const delayedMove = new MoveDelay();
   let enabled = false;
   let board = null;
   let lastSample = null;
@@ -19,24 +21,53 @@ import { playMove, choosePromotion } from "./auto-move.js";
   let attemptedFen = "";
 
   function stopAuto(message = "") {
+    delayedMove.cancel();
     $("auto").checked = false;
     pendingMove = null;
     $("status").textContent = message;
   }
 
   function autoMove(move, fen) {
-    if (!enabled || !$("auto").checked || pendingMove || attemptedFen === fen)
+    if (
+      !enabled ||
+      !$("auto").checked ||
+      pendingMove ||
+      delayedMove.pending ||
+      attemptedFen === fen
+    )
       return;
     if (tracker.chess.turn() !== $("side").value) return;
     if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
       return;
-    attemptedFen = fen;
-    pendingMove = { fen, move, board, started: Date.now(), promoted: false };
-    try {
-      playMove(board, move);
-    } catch (error) {
-      stopAuto(error.message);
-    }
+    const targetBoard = board;
+    const id = generation;
+    delayedMove.schedule(
+      moveDelay($("tempo").value),
+      () =>
+        enabled &&
+        $("auto").checked &&
+        id === generation &&
+        board === targetBoard &&
+        targetBoard.isConnected &&
+        tracker.chess.fen() === fen &&
+        tracker.chess.turn() === $("side").value &&
+        readPlacement(targetBoard) === fen.split(" ")[0],
+      () => {
+        attemptedFen = fen;
+        pendingMove = {
+          fen,
+          move,
+          board: targetBoard,
+          started: Date.now(),
+          promoted: false,
+        };
+        try {
+          playMove(targetBoard, move);
+        } catch (error) {
+          stopAuto(error.message);
+        }
+      },
+    );
   }
   function clearMarks() {
     for (const mark of marks) mark.remove();
@@ -51,6 +82,7 @@ import { playMove, choosePromotion } from "./auto-move.js";
     clearMarks();
   }
   function invalidate() {
+    delayedMove.cancel();
     generation++;
     currentKey = "";
     clearResult();
@@ -161,6 +193,7 @@ import { playMove, choosePromotion } from "./auto-move.js";
     $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
   };
   $("time").onchange = () => invalidate();
+  $("tempo").onchange = () => invalidate();
   $("auto").onchange = () => {
     pendingMove = null;
     attemptedFen = "";
@@ -197,6 +230,7 @@ import { playMove, choosePromotion } from "./auto-move.js";
     if (event.key === "Enter") $("sync").click();
   });
   window.addEventListener("resize", clearMarks);
+  window.addEventListener("pagehide", () => stopAuto());
   window.addEventListener("scroll", clearMarks, true);
   function tick() {
     if (!enabled) return;

@@ -54,6 +54,15 @@ export function createPanel() {
             <option value="3000">3 с</option>
           </select>
         </div>
+        <div class="row">
+          <label for="tempo">Темп</label>
+          <select id="tempo" title="Пауза после анализа">
+            <option value="off">Без паузы</option>
+            <option value="fast">Быстрый</option>
+            <option value="normal" selected>Обычный</option>
+            <option value="slow">Спокойный</option>
+          </select>
+        </div>
         <input id="fen" placeholder="FEN" aria-label="Полный FEN" spellcheck="false">
         <div class="row">
           <button id="sync" title="Применить FEN" aria-label="Применить FEN">↵</button>

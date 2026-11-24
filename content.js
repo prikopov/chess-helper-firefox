@@ -3577,6 +3577,15 @@
             <option value="3000">3 \u0441</option>
           </select>
         </div>
+        <div class="row">
+          <label for="tempo">\u0422\u0435\u043C\u043F</label>
+          <select id="tempo" title="\u041F\u0430\u0443\u0437\u0430 \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430">
+            <option value="off">\u0411\u0435\u0437 \u043F\u0430\u0443\u0437\u044B</option>
+            <option value="fast">\u0411\u044B\u0441\u0442\u0440\u044B\u0439</option>
+            <option value="normal" selected>\u041E\u0431\u044B\u0447\u043D\u044B\u0439</option>
+            <option value="slow">\u0421\u043F\u043E\u043A\u043E\u0439\u043D\u044B\u0439</option>
+          </select>
+        </div>
         <input id="fen" placeholder="FEN" aria-label="\u041F\u043E\u043B\u043D\u044B\u0439 FEN" spellcheck="false">
         <div class="row">
           <button id="sync" title="\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C FEN" aria-label="\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C FEN">\u21B5</button>
@@ -3670,12 +3679,45 @@
     return true;
   }
 
+  // work/chess-helper-firefox/move-delay.js
+  var ranges = {
+    fast: [300, 900],
+    normal: [800, 2400],
+    slow: [1500, 4500]
+  };
+  function moveDelay(tempo, random = Math.random) {
+    if (tempo === "off") return 0;
+    const [min, max] = ranges[tempo] || ranges.normal;
+    return Math.round(min + random() * (max - min));
+  }
+  var MoveDelay = class {
+    constructor(clock = globalThis) {
+      this.clock = clock;
+      this.timer = null;
+    }
+    get pending() {
+      return this.timer !== null;
+    }
+    cancel() {
+      if (this.pending) this.clock.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    schedule(ms, valid, play) {
+      this.cancel();
+      this.timer = this.clock.setTimeout(() => {
+        this.timer = null;
+        if (valid()) play();
+      }, ms);
+    }
+  };
+
   // work/chess-helper-firefox/content-source.js
   (() => {
     if (document.getElementById("chess-experiment-panel")) return;
     const root = createPanel();
     const $ = (id) => root.getElementById(id);
     const tracker = new Tracker();
+    const delayedMove = new MoveDelay();
     let enabled = false;
     let board = null;
     let lastSample = null;
@@ -3688,23 +3730,38 @@
     let pendingMove = null;
     let attemptedFen = "";
     function stopAuto(message = "") {
+      delayedMove.cancel();
       $("auto").checked = false;
       pendingMove = null;
       $("status").textContent = message;
     }
     function autoMove(move, fen) {
-      if (!enabled || !$("auto").checked || pendingMove || attemptedFen === fen)
+      if (!enabled || !$("auto").checked || pendingMove || delayedMove.pending || attemptedFen === fen)
         return;
       if (tracker.chess.turn() !== $("side").value) return;
       if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
         return;
-      attemptedFen = fen;
-      pendingMove = { fen, move, board, started: Date.now(), promoted: false };
-      try {
-        playMove(board, move);
-      } catch (error) {
-        stopAuto(error.message);
-      }
+      const targetBoard = board;
+      const id = generation;
+      delayedMove.schedule(
+        moveDelay($("tempo").value),
+        () => enabled && $("auto").checked && id === generation && board === targetBoard && targetBoard.isConnected && tracker.chess.fen() === fen && tracker.chess.turn() === $("side").value && readPlacement(targetBoard) === fen.split(" ")[0],
+        () => {
+          attemptedFen = fen;
+          pendingMove = {
+            fen,
+            move,
+            board: targetBoard,
+            started: Date.now(),
+            promoted: false
+          };
+          try {
+            playMove(targetBoard, move);
+          } catch (error) {
+            stopAuto(error.message);
+          }
+        }
+      );
     }
     function clearMarks() {
       for (const mark of marks) mark.remove();
@@ -3719,6 +3776,7 @@
       clearMarks();
     }
     function invalidate() {
+      delayedMove.cancel();
       generation++;
       currentKey = "";
       clearResult();
@@ -3820,6 +3878,7 @@
       $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
     };
     $("time").onchange = () => invalidate();
+    $("tempo").onchange = () => invalidate();
     $("auto").onchange = () => {
       pendingMove = null;
       attemptedFen = "";
@@ -3856,6 +3915,7 @@
       if (event.key === "Enter") $("sync").click();
     });
     window.addEventListener("resize", clearMarks);
+    window.addEventListener("pagehide", () => stopAuto());
     window.addEventListener("scroll", clearMarks, true);
     function tick() {
       if (!enabled) return;
