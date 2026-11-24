@@ -3734,7 +3734,6 @@
     let pendingMove = null;
     let attemptedFen = "";
     let autoSide = null;
-    let hiddenSince = document.hidden ? Date.now() : null;
     function findBoard() {
       return [
         ...document.querySelectorAll("wc-chess-board, chess-board, .board")
@@ -3762,7 +3761,7 @@
       $("status").textContent = message;
     }
     function autoMove(move, fen) {
-      if (!enabled || document.hidden || !$("auto").checked || pendingMove || delayedMove.pending || attemptedFen === fen)
+      if (!enabled || !$("auto").checked || pendingMove || delayedMove.pending || attemptedFen === fen)
         return;
       if (tracker.chess.turn() !== autoSide) return;
       if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
@@ -3771,7 +3770,7 @@
       const id = generation;
       delayedMove.schedule(
         moveDelay($("tempo").value),
-        () => enabled && !document.hidden && $("auto").checked && id === generation && board === targetBoard && targetBoard.isConnected && tracker.chess.fen() === fen && tracker.chess.turn() === autoSide && readPlacement(targetBoard) === fen.split(" ")[0],
+        () => enabled && $("auto").checked && id === generation && board === targetBoard && targetBoard.isConnected && tracker.chess.fen() === fen && tracker.chess.turn() === autoSide && readPlacement(targetBoard) === fen.split(" ")[0],
         () => {
           attemptedFen = fen;
           pendingMove = {
@@ -3952,25 +3951,9 @@
     window.addEventListener("pagehide", (event) => {
       if (!event.persisted) stopAuto();
     });
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        hiddenSince ??= Date.now();
-        if (enabled) {
-          invalidate();
-          if ($("auto").checked) $("status").textContent = "\u041F\u0430\u0443\u0437\u0430";
-        }
-        return;
-      }
-      if (hiddenSince === null) return;
-      const now = Date.now();
-      if (pendingMove) pendingMove.started += now - hiddenSince;
-      hiddenSince = null;
-      stableSince = now;
-      if ($("status").textContent === "\u041F\u0430\u0443\u0437\u0430") $("status").textContent = "";
-    });
     window.addEventListener("scroll", clearMarks, true);
     function tick() {
-      if (!enabled || document.hidden || hiddenSince !== null) return;
+      if (!enabled) return;
       const nextBoard = findBoard();
       if (!nextBoard) {
         stopAuto("\u041D\u0435\u0442 \u0434\u043E\u0441\u043A\u0438");

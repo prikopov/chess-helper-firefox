@@ -20,7 +20,6 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   let pendingMove = null;
   let attemptedFen = "";
   let autoSide = null;
-  let hiddenSince = document.hidden ? Date.now() : null;
 
   function findBoard() {
     return [
@@ -62,7 +61,6 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   function autoMove(move, fen) {
     if (
       !enabled ||
-      document.hidden ||
       !$("auto").checked ||
       pendingMove ||
       delayedMove.pending ||
@@ -78,7 +76,6 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
       moveDelay($("tempo").value),
       () =>
         enabled &&
-        !document.hidden &&
         $("auto").checked &&
         id === generation &&
         board === targetBoard &&
@@ -275,26 +272,9 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   window.addEventListener("pagehide", (event) => {
     if (!event.persisted) stopAuto();
   });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      hiddenSince ??= Date.now();
-      if (enabled) {
-        invalidate();
-        if ($("auto").checked) $("status").textContent = "Пауза";
-      }
-      return;
-    }
-    if (hiddenSince === null) return;
-    const now = Date.now();
-    // Time spent hidden doesn't count toward verifying a submitted move.
-    if (pendingMove) pendingMove.started += now - hiddenSince;
-    hiddenSince = null;
-    stableSince = now;
-    if ($("status").textContent === "Пауза") $("status").textContent = "";
-  });
   window.addEventListener("scroll", clearMarks, true);
   function tick() {
-    if (!enabled || document.hidden || hiddenSince !== null) return;
+    if (!enabled) return;
     const nextBoard = findBoard();
     if (!nextBoard) {
       stopAuto("Нет доски");
