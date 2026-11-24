@@ -19,24 +19,56 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   let geometry = "";
   let pendingMove = null;
   let attemptedFen = "";
+  let autoSide = null;
+  let hiddenSince = document.hidden ? Date.now() : null;
+
+  function findBoard() {
+    return [
+      ...document.querySelectorAll("wc-chess-board, chess-board, .board"),
+    ].find(
+      (node) =>
+        node.querySelector(".piece") &&
+        node.getBoundingClientRect().width > 100,
+    );
+  }
+
+  function boardSide(candidate = board) {
+    if (
+      !candidate?.isConnected ||
+      !candidate.matches("wc-chess-board, chess-board")
+    )
+      return null;
+    return candidate.closest(".flipped") ? "b" : "w";
+  }
+
+  function updateSideLabel(candidate = board) {
+    const side = $("side").value === "auto" && autoSide ? autoSide : boardSide(candidate);
+    const label =
+      side === "w" ? "Авто · белые" : side === "b" ? "Авто · чёрные" : "Авто";
+    if ($("auto-side").textContent !== label)
+      $("auto-side").textContent = label;
+  }
 
   function stopAuto(message = "") {
     delayedMove.cancel();
     $("auto").checked = false;
     pendingMove = null;
+    autoSide = null;
+    updateSideLabel();
     $("status").textContent = message;
   }
 
   function autoMove(move, fen) {
     if (
       !enabled ||
+      document.hidden ||
       !$("auto").checked ||
       pendingMove ||
       delayedMove.pending ||
       attemptedFen === fen
     )
       return;
-    if (tracker.chess.turn() !== $("side").value) return;
+    if (tracker.chess.turn() !== autoSide) return;
     if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
       return;
     const targetBoard = board;
@@ -45,12 +77,13 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
       moveDelay($("tempo").value),
       () =>
         enabled &&
+        !document.hidden &&
         $("auto").checked &&
         id === generation &&
         board === targetBoard &&
         targetBoard.isConnected &&
         tracker.chess.fen() === fen &&
-        tracker.chess.turn() === $("side").value &&
+        tracker.chess.turn() === autoSide &&
         readPlacement(targetBoard) === fen.split(" ")[0],
       () => {
         attemptedFen = fen;
@@ -191,6 +224,7 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   $("settings").onclick = () => {
     $("drawer").hidden = !$("drawer").hidden;
     $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
+    if (!$("drawer").hidden) updateSideLabel(findBoard());
   };
   $("time").onchange = () => invalidate();
   $("tempo").onchange = () => invalidate();
@@ -198,6 +232,13 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
     pendingMove = null;
     attemptedFen = "";
     invalidate();
+    autoSide = null;
+    if ($("auto").checked) {
+      const selected = $("side").value;
+      autoSide = selected === "auto" ? boardSide(findBoard()) : selected;
+      if (!autoSide) stopAuto("Выбери сторону");
+    }
+    updateSideLabel();
   };
   $("side").onchange = () => {
     stopAuto();
@@ -230,19 +271,35 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
     if (event.key === "Enter") $("sync").click();
   });
   window.addEventListener("resize", clearMarks);
-  window.addEventListener("pagehide", () => stopAuto());
+  window.addEventListener("pagehide", (event) => {
+    if (!event.persisted) stopAuto();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      hiddenSince ??= Date.now();
+      if (enabled) {
+        invalidate();
+        if ($("auto").checked) $("status").textContent = "Пауза";
+      }
+      return;
+    }
+    if (hiddenSince === null) return;
+    const now = Date.now();
+    // Time spent hidden doesn't count toward verifying a submitted move.
+    if (pendingMove) pendingMove.started += now - hiddenSince;
+    hiddenSince = null;
+    stableSince = now;
+    if ($("status").textContent === "Пауза") $("status").textContent = "";
+  });
   window.addEventListener("scroll", clearMarks, true);
   function tick() {
-    if (!enabled) return;
-    const nextBoard = [
-      ...document.querySelectorAll("wc-chess-board, chess-board, .board"),
-    ].find(
-      (b) => b.querySelector(".piece") && b.getBoundingClientRect().width > 100,
-    );
+    if (!enabled || document.hidden || hiddenSince !== null) return;
+    const nextBoard = findBoard();
     if (!nextBoard) {
       stopAuto("Нет доски");
       if (board) invalidate();
       board = null;
+      updateSideLabel();
       $("status").textContent = "Нет доски";
       return;
     }
@@ -252,6 +309,7 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
       invalidate();
       lastSample = null;
     }
+    updateSideLabel();
     if (hintMove) {
       const rect = board.getBoundingClientRect(),
         flipped =

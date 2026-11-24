@@ -44,7 +44,11 @@ export function createPanel() {
         </div>
         <div class="row">
           <label for="side">Сторона</label>
-          <select id="side"><option value="w">Белые</option><option value="b">Чёрные</option></select>
+          <select id="side">
+            <option id="auto-side" value="auto" selected>Авто</option>
+            <option value="w">Белые</option>
+            <option value="b">Чёрные</option>
+          </select>
         </div>
         <div class="row">
           <label for="time">Анализ</label>

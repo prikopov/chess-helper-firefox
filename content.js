@@ -3567,7 +3567,11 @@
         </div>
         <div class="row">
           <label for="side">\u0421\u0442\u043E\u0440\u043E\u043D\u0430</label>
-          <select id="side"><option value="w">\u0411\u0435\u043B\u044B\u0435</option><option value="b">\u0427\u0451\u0440\u043D\u044B\u0435</option></select>
+          <select id="side">
+            <option id="auto-side" value="auto" selected>\u0410\u0432\u0442\u043E</option>
+            <option value="w">\u0411\u0435\u043B\u044B\u0435</option>
+            <option value="b">\u0427\u0451\u0440\u043D\u044B\u0435</option>
+          </select>
         </div>
         <div class="row">
           <label for="time">\u0410\u043D\u0430\u043B\u0438\u0437</label>
@@ -3729,23 +3733,45 @@
     let geometry = "";
     let pendingMove = null;
     let attemptedFen = "";
+    let autoSide = null;
+    let hiddenSince = document.hidden ? Date.now() : null;
+    function findBoard() {
+      return [
+        ...document.querySelectorAll("wc-chess-board, chess-board, .board")
+      ].find(
+        (node2) => node2.querySelector(".piece") && node2.getBoundingClientRect().width > 100
+      );
+    }
+    function boardSide(candidate = board) {
+      if (!candidate?.isConnected || !candidate.matches("wc-chess-board, chess-board"))
+        return null;
+      return candidate.closest(".flipped") ? "b" : "w";
+    }
+    function updateSideLabel(candidate = board) {
+      const side = autoSide ?? boardSide(candidate);
+      const label = side === "w" ? "\u0410\u0432\u0442\u043E \xB7 \u0431\u0435\u043B\u044B\u0435" : side === "b" ? "\u0410\u0432\u0442\u043E \xB7 \u0447\u0451\u0440\u043D\u044B\u0435" : "\u0410\u0432\u0442\u043E";
+      if ($("auto-side").textContent !== label)
+        $("auto-side").textContent = label;
+    }
     function stopAuto(message = "") {
       delayedMove.cancel();
       $("auto").checked = false;
       pendingMove = null;
+      autoSide = null;
+      updateSideLabel();
       $("status").textContent = message;
     }
     function autoMove(move, fen) {
-      if (!enabled || !$("auto").checked || pendingMove || delayedMove.pending || attemptedFen === fen)
+      if (!enabled || document.hidden || !$("auto").checked || pendingMove || delayedMove.pending || attemptedFen === fen)
         return;
-      if (tracker.chess.turn() !== $("side").value) return;
+      if (tracker.chess.turn() !== autoSide) return;
       if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
         return;
       const targetBoard = board;
       const id = generation;
       delayedMove.schedule(
         moveDelay($("tempo").value),
-        () => enabled && $("auto").checked && id === generation && board === targetBoard && targetBoard.isConnected && tracker.chess.fen() === fen && tracker.chess.turn() === $("side").value && readPlacement(targetBoard) === fen.split(" ")[0],
+        () => enabled && !document.hidden && $("auto").checked && id === generation && board === targetBoard && targetBoard.isConnected && tracker.chess.fen() === fen && tracker.chess.turn() === autoSide && readPlacement(targetBoard) === fen.split(" ")[0],
         () => {
           attemptedFen = fen;
           pendingMove = {
@@ -3876,6 +3902,7 @@
     $("settings").onclick = () => {
       $("drawer").hidden = !$("drawer").hidden;
       $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
+      if (!$("drawer").hidden && !board) updateSideLabel(findBoard());
     };
     $("time").onchange = () => invalidate();
     $("tempo").onchange = () => invalidate();
@@ -3883,6 +3910,13 @@
       pendingMove = null;
       attemptedFen = "";
       invalidate();
+      autoSide = null;
+      if ($("auto").checked) {
+        const selected = $("side").value;
+        autoSide = selected === "auto" ? boardSide(findBoard()) : selected;
+        if (!autoSide) stopAuto("\u0412\u044B\u0431\u0435\u0440\u0438 \u0441\u0442\u043E\u0440\u043E\u043D\u0443");
+      }
+      updateSideLabel();
     };
     $("side").onchange = () => {
       stopAuto();
@@ -3915,19 +3949,34 @@
       if (event.key === "Enter") $("sync").click();
     });
     window.addEventListener("resize", clearMarks);
-    window.addEventListener("pagehide", () => stopAuto());
+    window.addEventListener("pagehide", (event) => {
+      if (!event.persisted) stopAuto();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        hiddenSince ??= Date.now();
+        if (enabled) {
+          invalidate();
+          if ($("auto").checked) $("status").textContent = "\u041F\u0430\u0443\u0437\u0430";
+        }
+        return;
+      }
+      if (hiddenSince === null) return;
+      const now = Date.now();
+      if (pendingMove) pendingMove.started += now - hiddenSince;
+      hiddenSince = null;
+      stableSince = now;
+      if ($("status").textContent === "\u041F\u0430\u0443\u0437\u0430") $("status").textContent = "";
+    });
     window.addEventListener("scroll", clearMarks, true);
     function tick() {
-      if (!enabled) return;
-      const nextBoard = [
-        ...document.querySelectorAll("wc-chess-board, chess-board, .board")
-      ].find(
-        (b) => b.querySelector(".piece") && b.getBoundingClientRect().width > 100
-      );
+      if (!enabled || document.hidden || hiddenSince !== null) return;
+      const nextBoard = findBoard();
       if (!nextBoard) {
         stopAuto("\u041D\u0435\u0442 \u0434\u043E\u0441\u043A\u0438");
         if (board) invalidate();
         board = null;
+        updateSideLabel();
         $("status").textContent = "\u041D\u0435\u0442 \u0434\u043E\u0441\u043A\u0438";
         return;
       }
@@ -3937,6 +3986,7 @@
         invalidate();
         lastSample = null;
       }
+      updateSideLabel();
       if (hintMove) {
         const rect = board.getBoundingClientRect(), flipped = board.classList.contains("flipped") || !!board.closest(".flipped");
         const nextGeometry = `${rect.left},${rect.top},${rect.width},${rect.height},${flipped}`;
