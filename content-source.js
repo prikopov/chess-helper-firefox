@@ -42,7 +42,8 @@ import { MoveDelay, moveDelay } from "./move-delay.js";
   }
 
   function updateSideLabel(candidate = board) {
-    const side = $("side").value === "auto" && autoSide ? autoSide : boardSide(candidate);
+    const side =
+      $("side").value === "auto" && autoSide ? autoSide : boardSide(candidate);
     const label =
       side === "w" ? "Авто · белые" : side === "b" ? "Авто · чёрные" : "Авто";
     if ($("auto-side").textContent !== label)

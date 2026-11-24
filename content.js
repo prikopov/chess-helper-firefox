@@ -3748,7 +3748,7 @@
       return candidate.closest(".flipped") ? "b" : "w";
     }
     function updateSideLabel(candidate = board) {
-      const side = autoSide ?? boardSide(candidate);
+      const side = $("side").value === "auto" && autoSide ? autoSide : boardSide(candidate);
       const label = side === "w" ? "\u0410\u0432\u0442\u043E \xB7 \u0431\u0435\u043B\u044B\u0435" : side === "b" ? "\u0410\u0432\u0442\u043E \xB7 \u0447\u0451\u0440\u043D\u044B\u0435" : "\u0410\u0432\u0442\u043E";
       if ($("auto-side").textContent !== label)
         $("auto-side").textContent = label;
@@ -3902,7 +3902,7 @@
     $("settings").onclick = () => {
       $("drawer").hidden = !$("drawer").hidden;
       $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
-      if (!$("drawer").hidden && !board) updateSideLabel(findBoard());
+      if (!$("drawer").hidden) updateSideLabel(findBoard());
     };
     $("time").onchange = () => invalidate();
     $("tempo").onchange = () => invalidate();
