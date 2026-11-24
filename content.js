@@ -1,5 +1,5 @@
 (() => {
-  // outputs/chess-helper/vendor/chess.js
+  // work/chess-helper-firefox/vendor/chess.js
   function rootNode(comment) {
     return comment !== null ? { comment, variations: [] } : { variations: [] };
   }
@@ -3455,7 +3455,7 @@
     }
   };
 
-  // outputs/chess-helper/tracker.js
+  // work/chess-helper-firefox/tracker.js
   var placement = (chess) => chess.fen().split(" ")[0];
   var Tracker = class {
     constructor(fen) {
@@ -3521,7 +3521,7 @@
     }).join("/");
   }
 
-  // outputs/chess-helper/panel.js
+  // work/chess-helper-firefox/panel.js
   function createPanel() {
     const host = document.createElement("div");
     host.id = "chess-experiment-panel";
@@ -3549,6 +3549,8 @@
       label { color: #aaa; }
       select { padding: 4px; }
       input { width: 100%; margin: 8px 0; padding: 6px; }
+      input[type="checkbox"] { width: auto; margin: 0; accent-color: #b5d690; }
+      #drawer .row + .row { margin-top: 8px; }
     </style>
     <section aria-label="Stockfish">
       <div class="row">
@@ -3559,6 +3561,14 @@
       </div>
       <div id="status" role="status"></div>
       <div id="drawer" hidden>
+        <div class="row">
+          <label for="auto">\u0410\u0432\u0442\u043E\u0445\u043E\u0434</label>
+          <input id="auto" type="checkbox" role="switch">
+        </div>
+        <div class="row">
+          <label for="side">\u0421\u0442\u043E\u0440\u043E\u043D\u0430</label>
+          <select id="side"><option value="w">\u0411\u0435\u043B\u044B\u0435</option><option value="b">\u0427\u0451\u0440\u043D\u044B\u0435</option></select>
+        </div>
         <div class="row">
           <label for="time">\u0410\u043D\u0430\u043B\u0438\u0437</label>
           <select id="time">
@@ -3578,7 +3588,89 @@
     return root;
   }
 
-  // outputs/chess-helper/content-source.js
+  // work/chess-helper-firefox/auto-move.js
+  function squareCenter(board, square) {
+    const rect = board.getBoundingClientRect();
+    const flipped = !!board.closest(".flipped");
+    const file2 = square.charCodeAt(0) - 97;
+    const rank2 = Number(square[1]) - 1;
+    return {
+      x: rect.left + ((flipped ? 7 - file2 : file2) + 0.5) * rect.width / 8,
+      y: rect.top + ((flipped ? rank2 : 7 - rank2) + 0.5) * rect.height / 8
+    };
+  }
+  function targetAt(board, point) {
+    const target = document.elementFromPoint(point.x, point.y);
+    if (!target || target !== board && !board.contains(target)) {
+      throw new Error("\u0414\u043E\u0441\u043A\u0430 \u043F\u0435\u0440\u0435\u043A\u0440\u044B\u0442\u0430");
+    }
+    return target;
+  }
+  function mouse(target, type, point, buttons = 0) {
+    target.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        clientX: point.x,
+        clientY: point.y,
+        button: 0,
+        buttons
+      })
+    );
+  }
+  function click(target, point) {
+    const pointer = (type, buttons) => target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        clientX: point.x,
+        clientY: point.y,
+        button: 0,
+        buttons,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true
+      })
+    );
+    pointer("pointerdown", 1);
+    mouse(target, "mousedown", point, 1);
+    pointer("pointerup", 0);
+    mouse(target, "mouseup", point);
+    mouse(target, "click", point);
+  }
+  function playMove(board, move) {
+    const from = squareCenter(board, move.from);
+    const to = squareCenter(board, move.to);
+    const source = targetAt(board, from);
+    targetAt(board, to);
+    click(source, from);
+    click(targetAt(board, to), to);
+  }
+  function choosePromotion(board, color, piece) {
+    const candidates = document.querySelectorAll(
+      ".promotion-window .piece, .promotion-piece, .promotion-menu .piece"
+    );
+    const choice = [...candidates].find((node2) => {
+      const rect2 = node2.getBoundingClientRect();
+      return node2.classList.contains(color + piece) && rect2.width && rect2.height && (board.contains(node2) || node2.closest(".promotion-window, .promotion-menu"));
+    });
+    if (!choice) return false;
+    const rect = choice.getBoundingClientRect();
+    const point = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+    const target = document.elementFromPoint(point.x, point.y);
+    if (target !== choice && !choice.contains(target)) return false;
+    click(choice, point);
+    return true;
+  }
+
+  // work/chess-helper-firefox/content-source.js
   (() => {
     if (document.getElementById("chess-experiment-panel")) return;
     const root = createPanel();
@@ -3593,6 +3685,27 @@
     let marks = [];
     let hintMove = null;
     let geometry = "";
+    let pendingMove = null;
+    let attemptedFen = "";
+    function stopAuto(message = "") {
+      $("auto").checked = false;
+      pendingMove = null;
+      $("status").textContent = message;
+    }
+    function autoMove(move, fen) {
+      if (!enabled || !$("auto").checked || pendingMove || attemptedFen === fen)
+        return;
+      if (tracker.chess.turn() !== $("side").value) return;
+      if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
+        return;
+      attemptedFen = fen;
+      pendingMove = { fen, move, board, started: Date.now(), promoted: false };
+      try {
+        playMove(board, move);
+      } catch (error) {
+        stopAuto(error.message);
+      }
+    }
     function clearMarks() {
       for (const mark of marks) mark.remove();
       marks = [];
@@ -3652,6 +3765,7 @@
       const id = ++generation;
       clearResult();
       if (tracker.chess.isGameOver()) {
+        stopAuto();
         $("status").textContent = tracker.chess.isCheckmate() ? "\u041C\u0430\u0442" : "\u041D\u0438\u0447\u044C\u044F";
         return;
       }
@@ -3682,6 +3796,7 @@
         $("move").title = `${tracker.chess.turn() === "w" ? "\u0411\u0435\u043B\u044B\u0435" : "\u0427\u0451\u0440\u043D\u044B\u0435"} \xB7 ${move.san}`;
         $("status").textContent = "";
         draw(result.move);
+        autoMove(move, fen);
       } catch (error) {
         if (id === generation) {
           $("status").textContent = error.message;
@@ -3691,6 +3806,7 @@
     }
     $("toggle").onclick = () => {
       enabled = !enabled;
+      if (!enabled) stopAuto();
       invalidate();
       const label = enabled ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u043D\u0430\u043B\u0438\u0437" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u043D\u0430\u043B\u0438\u0437";
       $("toggle").textContent = enabled ? "\u2161" : "\u25B6";
@@ -3704,12 +3820,23 @@
       $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
     };
     $("time").onchange = () => invalidate();
+    $("auto").onchange = () => {
+      pendingMove = null;
+      attemptedFen = "";
+      invalidate();
+    };
+    $("side").onchange = () => {
+      stopAuto();
+      invalidate();
+    };
     $("sync").onclick = () => {
       try {
         const candidate = new Chess($("fen").value.trim());
         if (!board || readPlacement(board) !== placement(candidate))
           throw new Error("FEN \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442");
         tracker.sync(candidate.fen());
+        stopAuto();
+        attemptedFen = "";
         invalidate();
         $("status").textContent = "";
       } catch (e) {
@@ -3738,12 +3865,14 @@
         (b) => b.querySelector(".piece") && b.getBoundingClientRect().width > 100
       );
       if (!nextBoard) {
+        stopAuto("\u041D\u0435\u0442 \u0434\u043E\u0441\u043A\u0438");
         if (board) invalidate();
         board = null;
         $("status").textContent = "\u041D\u0435\u0442 \u0434\u043E\u0441\u043A\u0438";
         return;
       }
       if (nextBoard !== board) {
+        if (board) stopAuto();
         board = nextBoard;
         invalidate();
         lastSample = null;
@@ -3753,7 +3882,28 @@
         const nextGeometry = `${rect.left},${rect.top},${rect.width},${rect.height},${flipped}`;
         if (!marks.length || nextGeometry !== geometry) draw(hintMove);
       }
-      const sample = readPlacement(board);
+      let sample = readPlacement(board);
+      if (pendingMove) {
+        const pending = pendingMove;
+        if (pending.board !== board) {
+          stopAuto("\u0414\u043E\u0441\u043A\u0430 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C");
+          return;
+        }
+        if (pending.move.promotion && !pending.promoted) {
+          pending.promoted = choosePromotion(
+            board,
+            pending.move.color,
+            pending.move.promotion
+          );
+          sample = readPlacement(board);
+        }
+        if (!sample || sample === pending.fen.split(" ")[0] || pending.move.promotion && !pending.promoted && board.querySelector(
+          ".promotion-window, .promotion-menu, .promotion-piece"
+        )) {
+          if (Date.now() - pending.started > 3e3) stopAuto("\u0425\u043E\u0434 \u043D\u0435 \u043F\u0440\u0438\u043D\u044F\u0442");
+          return;
+        }
+      }
       if (sample !== lastSample) {
         lastSample = sample;
         stableSince = Date.now();
@@ -3762,8 +3912,20 @@
       if (!sample || Date.now() - stableSince < 180) return;
       const result = tracker.update(sample);
       if (result === "desync") {
+        stopAuto();
         $("status").textContent = "\u041D\u0443\u0436\u0435\u043D FEN";
         return;
+      }
+      if (pendingMove && result !== "same") {
+        const accepted = tracker.chess.history({ verbose: true }).some(
+          (move) => move.before === pendingMove.fen && move.from === pendingMove.move.from && move.to === pendingMove.move.to && move.promotion === pendingMove.move.promotion
+        );
+        if (!accepted) stopAuto("\u041F\u043E\u0437\u0438\u0446\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C");
+        pendingMove = null;
+      }
+      if (result === "reset") {
+        stopAuto();
+        attemptedFen = "";
       }
       analyze();
     }

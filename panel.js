@@ -26,6 +26,8 @@ export function createPanel() {
       label { color: #aaa; }
       select { padding: 4px; }
       input { width: 100%; margin: 8px 0; padding: 6px; }
+      input[type="checkbox"] { width: auto; margin: 0; accent-color: #b5d690; }
+      #drawer .row + .row { margin-top: 8px; }
     </style>
     <section aria-label="Stockfish">
       <div class="row">
@@ -36,6 +38,14 @@ export function createPanel() {
       </div>
       <div id="status" role="status"></div>
       <div id="drawer" hidden>
+        <div class="row">
+          <label for="auto">Автоход</label>
+          <input id="auto" type="checkbox" role="switch">
+        </div>
+        <div class="row">
+          <label for="side">Сторона</label>
+          <select id="side"><option value="w">Белые</option><option value="b">Чёрные</option></select>
+        </div>
         <div class="row">
           <label for="time">Анализ</label>
           <select id="time">

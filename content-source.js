@@ -1,5 +1,6 @@
 import { Tracker, Chess, placement, readPlacement } from "./tracker.js";
 import { createPanel } from "./panel.js";
+import { playMove, choosePromotion } from "./auto-move.js";
 (() => {
   if (document.getElementById("chess-experiment-panel")) return;
   const root = createPanel();
@@ -14,6 +15,29 @@ import { createPanel } from "./panel.js";
   let marks = [];
   let hintMove = null;
   let geometry = "";
+  let pendingMove = null;
+  let attemptedFen = "";
+
+  function stopAuto(message = "") {
+    $("auto").checked = false;
+    pendingMove = null;
+    $("status").textContent = message;
+  }
+
+  function autoMove(move, fen) {
+    if (!enabled || !$("auto").checked || pendingMove || attemptedFen === fen)
+      return;
+    if (tracker.chess.turn() !== $("side").value) return;
+    if (!board?.isConnected || readPlacement(board) !== fen.split(" ")[0])
+      return;
+    attemptedFen = fen;
+    pendingMove = { fen, move, board, started: Date.now(), promoted: false };
+    try {
+      playMove(board, move);
+    } catch (error) {
+      stopAuto(error.message);
+    }
+  }
   function clearMarks() {
     for (const mark of marks) mark.remove();
     marks = [];
@@ -74,6 +98,7 @@ import { createPanel } from "./panel.js";
     const id = ++generation;
     clearResult();
     if (tracker.chess.isGameOver()) {
+      stopAuto();
       $("status").textContent = tracker.chess.isCheckmate() ? "Мат" : "Ничья";
       return;
     }
@@ -112,6 +137,7 @@ import { createPanel } from "./panel.js";
         `${tracker.chess.turn() === "w" ? "Белые" : "Чёрные"} · ${move.san}`;
       $("status").textContent = "";
       draw(result.move);
+      autoMove(move, fen);
     } catch (error) {
       if (id === generation) {
         $("status").textContent = error.message;
@@ -121,6 +147,7 @@ import { createPanel } from "./panel.js";
   }
   $("toggle").onclick = () => {
     enabled = !enabled;
+    if (!enabled) stopAuto();
     invalidate();
     const label = enabled ? "Выключить анализ" : "Включить анализ";
     $("toggle").textContent = enabled ? "Ⅱ" : "▶";
@@ -134,12 +161,23 @@ import { createPanel } from "./panel.js";
     $("settings").setAttribute("aria-expanded", String(!$("drawer").hidden));
   };
   $("time").onchange = () => invalidate();
+  $("auto").onchange = () => {
+    pendingMove = null;
+    attemptedFen = "";
+    invalidate();
+  };
+  $("side").onchange = () => {
+    stopAuto();
+    invalidate();
+  };
   $("sync").onclick = () => {
     try {
       const candidate = new Chess($("fen").value.trim());
       if (!board || readPlacement(board) !== placement(candidate))
         throw new Error("FEN не совпадает");
       tracker.sync(candidate.fen());
+      stopAuto();
+      attemptedFen = "";
       invalidate();
       $("status").textContent = "";
     } catch (e) {
@@ -168,12 +206,14 @@ import { createPanel } from "./panel.js";
       (b) => b.querySelector(".piece") && b.getBoundingClientRect().width > 100,
     );
     if (!nextBoard) {
+      stopAuto("Нет доски");
       if (board) invalidate();
       board = null;
       $("status").textContent = "Нет доски";
       return;
     }
     if (nextBoard !== board) {
+      if (board) stopAuto();
       board = nextBoard;
       invalidate();
       lastSample = null;
@@ -185,7 +225,35 @@ import { createPanel } from "./panel.js";
       const nextGeometry = `${rect.left},${rect.top},${rect.width},${rect.height},${flipped}`;
       if (!marks.length || nextGeometry !== geometry) draw(hintMove);
     }
-    const sample = readPlacement(board);
+    let sample = readPlacement(board);
+    if (pendingMove) {
+      const pending = pendingMove;
+      if (pending.board !== board) {
+        stopAuto("Доска изменилась");
+        return;
+      }
+      if (pending.move.promotion && !pending.promoted) {
+        pending.promoted = choosePromotion(
+          board,
+          pending.move.color,
+          pending.move.promotion,
+        );
+        sample = readPlacement(board);
+      }
+      // A promotion can temporarily leave an unpromoted pawn on the last rank.
+      if (
+        !sample ||
+        sample === pending.fen.split(" ")[0] ||
+        (pending.move.promotion &&
+          !pending.promoted &&
+          board.querySelector(
+            ".promotion-window, .promotion-menu, .promotion-piece",
+          ))
+      ) {
+        if (Date.now() - pending.started > 3000) stopAuto("Ход не принят");
+        return;
+      }
+    }
     if (sample !== lastSample) {
       lastSample = sample;
       stableSince = Date.now();
@@ -194,8 +262,26 @@ import { createPanel } from "./panel.js";
     if (!sample || Date.now() - stableSince < 180) return;
     const result = tracker.update(sample);
     if (result === "desync") {
+      stopAuto();
       $("status").textContent = "Нужен FEN";
       return;
+    }
+    if (pendingMove && result !== "same") {
+      const accepted = tracker.chess
+        .history({ verbose: true })
+        .some(
+          (move) =>
+            move.before === pendingMove.fen &&
+            move.from === pendingMove.move.from &&
+            move.to === pendingMove.move.to &&
+            move.promotion === pendingMove.move.promotion,
+        );
+      if (!accepted) stopAuto("Позиция изменилась");
+      pendingMove = null;
+    }
+    if (result === "reset") {
+      stopAuto();
+      attemptedFen = "";
     }
     analyze();
   }

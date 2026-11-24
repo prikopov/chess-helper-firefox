@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Chess Helper",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Локальный шахматный анализ для экспериментов и тренировок.",
   "browser_specific_settings": {
     "gecko": {
